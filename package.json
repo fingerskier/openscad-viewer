@@ -3,7 +3,11 @@
   "version": "2026.2.1",
   "description": "Simple openscad model viewer with camera controls.",
   "main": "index.js",
+  "bin": {
+    "openscad-viewer": "index.js"
+  },
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -17,5 +21,12 @@
   "bugs": {
     "url": "https://github.com/fingerskier/openscad-viewer/issues"
   },
-  "homepage": "https://github.com/fingerskier/openscad-viewer#readme"
+  "homepage": "https://github.com/fingerskier/openscad-viewer#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "chokidar": "^3.6.0",
+    "express": "^4.21.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
+  }
 }
