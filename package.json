@@ -1,6 +1,6 @@
 {
   "name": "openscad-viewer",
-  "version": "2026.2.1",
+  "version": "2026.2.2",
   "description": "Simple openscad model viewer with camera controls.",
   "main": "index.js",
   "bin": {
