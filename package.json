@@ -1,0 +1,21 @@
+{
+  "name": "openscad-viewer",
+  "version": "2026.2.1",
+  "description": "Simple openscad model viewer with camera controls.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fingerskier/openscad-viewer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/fingerskier/openscad-viewer/issues"
+  },
+  "homepage": "https://github.com/fingerskier/openscad-viewer#readme"
+}
