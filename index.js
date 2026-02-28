@@ -166,7 +166,9 @@ function setupWatcher(filePath) {
   watcher = chokidar.watch(files, { ignoreInitial: true });
   watcher.on('change', () => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => handleFileChange(), 300);
+    debounceTimer = setTimeout(() => handleFileChange().catch(err => {
+      log(`Watch handler error: ${err.message}`);
+    }), 300);
   });
 }
 
@@ -176,6 +178,10 @@ async function handleFileChange() {
 
   if (ext === '.scad') {
     const result = await compileScad(currentFile);
+
+    // Re-setup watcher (dependencies may have changed, even on errors)
+    setupWatcher(currentFile);
+
     if (result.error) {
       log(`Compilation error: ${result.error}`);
       broadcast({ type: 'error', message: result.error });
@@ -184,9 +190,6 @@ async function handleFileChange() {
     currentStlPath = result.stlPath;
     currentStlBuffer = await fsp.readFile(result.stlPath);
     lastBoundingBox = parseStlBoundingBox(currentStlBuffer);
-
-    // Re-setup watcher (dependencies may have changed)
-    setupWatcher(currentFile);
   } else {
     currentStlBuffer = await fsp.readFile(currentFile);
     lastBoundingBox = parseStlBoundingBox(currentStlBuffer);
