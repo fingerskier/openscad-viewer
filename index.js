@@ -264,20 +264,19 @@ function openBrowser(url) {
 async function main() {
   const args = process.argv.slice(2);
 
-  if (args.length === 0) {
-    process.stderr.write('Usage: openscad-viewer <file.scad|file.stl>\n');
-    process.exit(1);
-  }
+  const filePath = args[0] || null;
 
-  const filePath = args[0];
-  const ext = path.extname(filePath).toLowerCase();
-
-  if (ext === '.scad' && !(await checkOpenSCAD())) {
-    process.stderr.write(
-      'Error: OpenSCAD is not installed or not found on $PATH.\n' +
-      'Install OpenSCAD to view .scad files, or provide a .stl file instead.\n'
-    );
-    process.exit(1);
+  if (filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.scad' && !(await checkOpenSCAD())) {
+      process.stderr.write(
+        'Error: OpenSCAD is not installed or not found on $PATH.\n' +
+        'Install OpenSCAD to view .scad files, or provide a .stl file instead.\n'
+      );
+      process.exit(1);
+    }
+  } else {
+    log('No file specified — starting in standby mode. Use the "open" MCP tool to load a model.');
   }
 
   // ----- Express ----------------------------------------------------------
@@ -336,15 +335,16 @@ async function main() {
   log(`Server running at http://localhost:${PORT}`);
 
   // ----- Open initial file ------------------------------------------------
-  try {
-    await openFile(filePath);
-    log(`Opened: ${currentFile}`);
-  } catch (err) {
-    process.stderr.write(`Error: ${err.message}\n`);
-    process.exit(1);
+  if (filePath) {
+    try {
+      await openFile(filePath);
+      log(`Opened: ${currentFile}`);
+    } catch (err) {
+      process.stderr.write(`Error: ${err.message}\n`);
+      process.exit(1);
+    }
+    openBrowser(`http://localhost:${PORT}`);
   }
-
-  openBrowser(`http://localhost:${PORT}`);
 
   // ----- MCP server (stdio) ----------------------------------------------
   const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
