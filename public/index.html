@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenSCAD Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    #root { width: 100vw; height: 100vh; position: relative; }
+    #canvas-container { width: 100%; height: 100%; }
+    canvas { display: block; }
+
+    .error-overlay {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      max-height: 200px;
+      overflow-y: auto;
+      background: rgba(185, 28, 28, 0.95);
+      color: #fef2f2;
+      padding: 14px 40px 14px 16px;
+      border-radius: 8px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      z-index: 100;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .error-overlay button {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      background: none;
+      border: none;
+      color: #fef2f2;
+      font-size: 20px;
+      cursor: pointer;
+      opacity: 0.7;
+      line-height: 1;
+    }
+    .error-overlay button:hover { opacity: 1; }
+
+    .loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #94a3b8;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React 18 (UMD) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Three.js import map -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+    const { createElement: h, useState, useEffect, useRef, useCallback } = React;
+
+    // -----------------------------------------------------------------------
+    // Three.js scene (module-level, shared with React via refs/callbacks)
+    // -----------------------------------------------------------------------
+    let renderer, scene, camera, controls, gridHelper;
+    let currentMesh = null;
+    let modelCenter = new THREE.Vector3();
+    let modelSize = 1;
+    const stlLoader = new STLLoader();
+
+    function initScene(container) {
+      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setClearColor(0x1a1a2e);
+      container.appendChild(renderer.domElement);
+
+      scene = new THREE.Scene();
+
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100000);
+
+      // Lights
+      scene.add(new THREE.AmbientLight(0x404040, 2));
+      const light1 = new THREE.DirectionalLight(0xffffff, 1.5);
+      light1.position.set(1, 1, 1);
+      scene.add(light1);
+      const light2 = new THREE.DirectionalLight(0xffffff, 0.8);
+      light2.position.set(-1, -0.5, -1);
+      scene.add(light2);
+
+      // Controls
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+
+      // Grid
+      gridHelper = new THREE.GridHelper(100, 20, 0x444466, 0x333355);
+      scene.add(gridHelper);
+
+      // Render loop
+      (function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      })();
+
+      // Resize handler
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    }
+
+    function loadModel(onDone) {
+      fetch('/model.stl', { cache: 'no-store' })
+        .then((r) => { if (!r.ok) throw new Error('No model'); return r.arrayBuffer(); })
+        .then((buf) => {
+          const geometry = stlLoader.parse(buf);
+          geometry.computeBoundingBox();
+          geometry.computeVertexNormals();
+
+          if (currentMesh) {
+            scene.remove(currentMesh);
+            currentMesh.geometry.dispose();
+            currentMesh.material.dispose();
+          }
+
+          const material = new THREE.MeshPhongMaterial({
+            color: 0x4a90d9,
+            specular: 0x222222,
+            shininess: 40,
+          });
+          currentMesh = new THREE.Mesh(geometry, material);
+          scene.add(currentMesh);
+
+          // Bounding box metrics
+          const bbox = geometry.boundingBox;
+          modelCenter = new THREE.Vector3();
+          bbox.getCenter(modelCenter);
+          const size = new THREE.Vector3();
+          bbox.getSize(size);
+          modelSize = Math.max(size.x, size.y, size.z);
+
+          // Scale grid to model
+          const gridScale = Math.max(1, modelSize / 20);
+          gridHelper.scale.setScalar(gridScale);
+
+          // Default isometric camera: azimuth 45°, elevation 30°
+          setCameraSpherical(45, 30, modelSize * 2.5, false);
+
+          if (onDone) onDone();
+        })
+        .catch((err) => console.error('Model load failed:', err));
+    }
+
+    function setCameraSpherical(azimuthDeg, elevationDeg, dist, animate = true) {
+      const distance = dist || modelSize * 2.5;
+      const az = (azimuthDeg * Math.PI) / 180;
+      const el = (elevationDeg * Math.PI) / 180;
+
+      const target = new THREE.Vector3(
+        modelCenter.x + distance * Math.cos(el) * Math.sin(az),
+        modelCenter.y + distance * Math.sin(el),
+        modelCenter.z + distance * Math.cos(el) * Math.cos(az),
+      );
+
+      if (!animate) {
+        camera.position.copy(target);
+        camera.lookAt(modelCenter);
+        controls.target.copy(modelCenter);
+        controls.update();
+        return Promise.resolve(distance);
+      }
+
+      // Smooth animation
+      return new Promise((resolve) => {
+        const start = camera.position.clone();
+        const t0 = performance.now();
+        const dur = 600;
+
+        function step(now) {
+          const p = Math.min((now - t0) / dur, 1);
+          const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+          camera.position.lerpVectors(start, target, ease);
+          camera.lookAt(modelCenter);
+          controls.target.copy(modelCenter);
+          controls.update();
+          if (p < 1) {
+            requestAnimationFrame(step);
+          } else {
+            camera.position.copy(target);
+            camera.lookAt(modelCenter);
+            controls.update();
+            // Extra frame to ensure render is up to date
+            requestAnimationFrame(() => {
+              renderer.render(scene, camera);
+              resolve(distance);
+            });
+          }
+        }
+        requestAnimationFrame(step);
+      });
+    }
+
+    function captureScreenshot() {
+      renderer.render(scene, camera);
+      return renderer.domElement.toDataURL('image/png');
+    }
+
+    // -----------------------------------------------------------------------
+    // React App
+    // -----------------------------------------------------------------------
+    function App() {
+      const containerRef = useRef(null);
+      const wsRef = useRef(null);
+      const [error, setError] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      // Initialise Three.js scene once
+      useEffect(() => {
+        if (containerRef.current && !renderer) {
+          initScene(containerRef.current);
+        }
+      }, []);
+
+      // WebSocket connection
+      useEffect(() => {
+        let ws;
+        let reconnectTimer;
+
+        function connect() {
+          ws = new WebSocket(`ws://${window.location.host}`);
+          wsRef.current = ws;
+
+          ws.onmessage = async (event) => {
+            const msg = JSON.parse(event.data);
+
+            switch (msg.type) {
+              case 'model-updated':
+                loadModel(() => {
+                  setLoading(false);
+                  setError(null);
+                });
+                break;
+
+              case 'file-info':
+                document.title = msg.filename + ' \u2014 OpenSCAD Viewer';
+                break;
+
+              case 'error':
+                setError(msg.message);
+                break;
+
+              case 'set-camera': {
+                const dist = await setCameraSpherical(
+                  msg.azimuth,
+                  msg.elevation,
+                  msg.distance,
+                  true,
+                );
+                const dataUrl = captureScreenshot();
+                ws.send(JSON.stringify({
+                  requestId: msg.requestId,
+                  type: 'screenshot',
+                  dataUrl,
+                  distance: dist,
+                }));
+                break;
+              }
+            }
+          };
+
+          ws.onclose = () => {
+            reconnectTimer = setTimeout(connect, 2000);
+          };
+
+          ws.onerror = () => ws.close();
+        }
+
+        connect();
+
+        return () => {
+          clearTimeout(reconnectTimer);
+          if (ws) ws.close();
+        };
+      }, []);
+
+      return h('div', { style: { width: '100vw', height: '100vh', position: 'relative' } },
+        h('div', { ref: containerRef, id: 'canvas-container' }),
+
+        loading && h('div', { className: 'loading' }, 'Loading model\u2026'),
+
+        error && h('div', { className: 'error-overlay' },
+          h('button', { onClick: () => setError(null) }, '\u00D7'),
+          error,
+        ),
+      );
+    }
+
+    // Mount
+    ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>
