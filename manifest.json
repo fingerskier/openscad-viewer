@@ -1,0 +1,36 @@
+{
+  "manifest_version": "0.3",
+  "name": "openscad-viewer",
+  "version": "2026.2.2",
+  "description": "Open and view OpenSCAD (.scad) and STL (.stl) 3D models with interactive camera controls. Render screenshots at any angle for visual inspection.",
+  "display_name": "OpenSCAD Viewer",
+  "author": {
+    "name": "fingerskier",
+    "url": "https://github.com/fingerskier"
+  },
+  "repository": "https://github.com/fingerskier/openscad-viewer",
+  "homepage": "https://github.com/fingerskier/openscad-viewer#readme",
+  "license": "ISC",
+  "server": {
+    "type": "node",
+    "entry_point": "index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/index.js"]
+    }
+  },
+  "tools": [
+    {
+      "name": "open",
+      "description": "Open a .scad or .stl file in the 3D viewer"
+    },
+    {
+      "name": "view",
+      "description": "Render the current model at a specified camera angle and return a screenshot"
+    }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"]
+  },
+  "keywords": ["openscad", "3d", "cad", "stl", "viewer", "rendering"]
+}

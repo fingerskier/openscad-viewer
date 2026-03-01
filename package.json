@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "pack:extension": "zip -r openscad-viewer.mcpb manifest.json index.js public/ node_modules/ package.json -x 'node_modules/.package-lock.json'",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
