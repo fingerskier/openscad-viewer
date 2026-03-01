@@ -424,7 +424,17 @@ async function main() {
   log('MCP server ready on stdio');
 }
 
-main().catch((err) => {
-  process.stderr.write(`Fatal error: ${err.message}\n`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    process.stderr.write(`Fatal error: ${err.message}\n`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  parseStlBoundingBox,
+  parseScadDependencies,
+  openFile,
+  cleanup() { if (watcher) { watcher.close(); watcher = null; } },
+  main,
+};
