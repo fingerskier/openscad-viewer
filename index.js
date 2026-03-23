@@ -14,6 +14,16 @@ const os = require('os');
 const execFileAsync = promisify(execFile);
 const PORT = 8439;
 
+// ---------------------------------------------------------------------------
+// Path security
+// ---------------------------------------------------------------------------
+
+function isPathAllowed(absPath) {
+  if (process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS === '1') return true;
+  const resolvedRoot = path.resolve(process.env.OPENSCAD_VIEWER_ROOT || process.cwd());
+  return absPath === resolvedRoot || absPath.startsWith(resolvedRoot + path.sep);
+}
+
 // Redirect all logging to stderr (stdout is reserved for MCP stdio transport)
 const log = (...args) => process.stderr.write(`[openscad-viewer] ${args.join(' ')}\n`);
 
@@ -205,6 +215,13 @@ async function handleFileChange() {
 async function openFile(filePath) {
   const absPath = path.resolve(filePath);
 
+  if (!isPathAllowed(absPath)) {
+    throw new Error(
+      `Access denied: ${absPath} is outside the allowed directory. ` +
+      `Set OPENSCAD_VIEWER_ALLOW_ALL_PATHS=1 to disable this restriction.`
+    );
+  }
+
   if (!fs.existsSync(absPath)) {
     throw new Error(`File not found: ${absPath}`);
   }
@@ -254,6 +271,52 @@ function openBrowser(url) {
     case 'darwin':  exec(`open "${url}"`);       break;
     case 'win32':   exec(`start "" "${url}"`);   break;
     default:        exec(`xdg-open "${url}"`);   break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// View tool handler (extracted for testability)
+// ---------------------------------------------------------------------------
+
+async function handleViewTool({ azimuth, elevation, distance }) {
+  if (!currentFile) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ error: 'No model currently loaded' }) }],
+      isError: true,
+    };
+  }
+
+  azimuth   = azimuth   ?? 45;
+  elevation = elevation ?? 30;
+
+  try {
+    const response = await sendAndWait({
+      type: 'set-camera',
+      azimuth,
+      elevation,
+      distance: distance ?? null,
+    });
+
+    const base64 = response.dataUrl.replace(/^data:image\/png;base64,/, '');
+    const tmpPath = path.join(os.tmpdir(), `openscad-viewer-capture-${Date.now()}.png`);
+    await fsp.writeFile(tmpPath, base64, 'base64');
+
+    const metadata = {
+      imagePath: tmpPath,
+      camera: { azimuth, elevation, distance: response.distance || distance },
+    };
+
+    return {
+      content: [
+        { type: 'image', data: base64, mimeType: 'image/png' },
+        { type: 'text', text: JSON.stringify(metadata, null, 2) },
+      ],
+    };
+  } catch (err) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }],
+      isError: true,
+    };
   }
 }
 
@@ -372,51 +435,13 @@ async function main() {
 
   mcp.tool(
     'view',
-    'Renders the current model at a specified camera angle and returns a screenshot image path',
+    'Renders the current model at a specified camera angle and returns a screenshot image and metadata',
     {
       azimuth:   z.number().min(0).max(360).optional().describe('Horizontal angle in degrees (0-360). Default: 45'),
       elevation: z.number().min(-90).max(90).optional().describe('Vertical angle in degrees (-90 to 90). Default: 30'),
       distance:  z.number().optional().describe('Distance from model center. Auto-calculated if omitted.'),
     },
-    async ({ azimuth, elevation, distance }) => {
-      if (!currentFile) {
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: 'No model currently loaded' }) }],
-          isError: true,
-        };
-      }
-
-      azimuth   = azimuth   ?? 45;
-      elevation = elevation ?? 30;
-
-      try {
-        const response = await sendAndWait({
-          type: 'set-camera',
-          azimuth,
-          elevation,
-          distance: distance ?? null,
-        });
-
-        const base64 = response.dataUrl.replace(/^data:image\/png;base64,/, '');
-        const tmpPath = path.join(os.tmpdir(), `openscad-viewer-capture-${Date.now()}.png`);
-        await fsp.writeFile(tmpPath, base64, 'base64');
-
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              imagePath: tmpPath,
-              camera: { azimuth, elevation, distance: response.distance || distance },
-            }, null, 2),
-          }],
-        };
-      } catch (err) {
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }],
-          isError: true,
-        };
-      }
-    },
+    async (args) => handleViewTool(args),
   );
 
   const transport = new StdioServerTransport();
@@ -435,6 +460,9 @@ module.exports = {
   parseStlBoundingBox,
   parseScadDependencies,
   openFile,
+  handleViewTool,
+  isPathAllowed,
   cleanup() { if (watcher) { watcher.close(); watcher = null; } },
+  resetState() { currentFile = null; currentStlPath = null; currentStlBuffer = null; lastBoundingBox = null; },
   main,
 };

@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const { parseStlBoundingBox, parseScadDependencies, openFile, cleanup } = require('../index.js');
+const { parseStlBoundingBox, parseScadDependencies, openFile, handleViewTool, isPathAllowed, cleanup, resetState } = require('../index.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -196,16 +196,25 @@ describe('openFile', () => {
   });
 
   it('throws for nonexistent file', async () => {
-    await assert.rejects(
-      () => openFile('/tmp/nonexistent-file-12345.stl'),
-      (err) => {
-        assert.ok(err.message.includes('File not found'));
-        return true;
-      },
-    );
+    const saved = process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+    process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = '1';
+    try {
+      await assert.rejects(
+        () => openFile('/tmp/nonexistent-file-12345.stl'),
+        (err) => {
+          assert.ok(err.message.includes('File not found'));
+          return true;
+        },
+      );
+    } finally {
+      if (saved === undefined) delete process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+      else process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = saved;
+    }
   });
 
   it('throws for unsupported file extension', async () => {
+    const saved = process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+    process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = '1';
     const tmpFile = path.join(os.tmpdir(), 'test-file.obj');
     fs.writeFileSync(tmpFile, 'dummy');
 
@@ -219,6 +228,56 @@ describe('openFile', () => {
       );
     } finally {
       fs.unlinkSync(tmpFile);
+      if (saved === undefined) delete process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+      else process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = saved;
+    }
+  });
+
+  it('rejects files outside the allowed directory', async () => {
+    const saved = process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+    delete process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+    try {
+      await assert.rejects(
+        () => openFile('/tmp/nonexistent-file-12345.stl'),
+        (err) => {
+          assert.ok(err.message.includes('Access denied'));
+          return true;
+        },
+      );
+    } finally {
+      if (saved !== undefined) process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = saved;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPathAllowed
+// ---------------------------------------------------------------------------
+
+describe('isPathAllowed', () => {
+  it('allows paths under cwd', () => {
+    const testPath = path.join(process.cwd(), 'samples', 'example.stl');
+    assert.strictEqual(isPathAllowed(testPath), true);
+  });
+
+  it('rejects paths outside cwd', () => {
+    const saved = process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+    delete process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+    try {
+      assert.strictEqual(isPathAllowed('/etc/passwd'), false);
+    } finally {
+      if (saved !== undefined) process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = saved;
+    }
+  });
+
+  it('allows any path when OPENSCAD_VIEWER_ALLOW_ALL_PATHS=1', () => {
+    const saved = process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+    process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = '1';
+    try {
+      assert.strictEqual(isPathAllowed('/etc/passwd'), true);
+    } finally {
+      if (saved === undefined) delete process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
+      else process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = saved;
     }
   });
 });
@@ -261,19 +320,13 @@ describe('MCP server integration', () => {
 
     mcpServer.tool(
       'view',
-      'Renders the current model at a specified camera angle and returns a screenshot image path',
+      'Renders the current model at a specified camera angle and returns a screenshot image and metadata',
       {
         azimuth: z.number().min(0).max(360).optional().describe('Horizontal angle in degrees (0-360). Default: 45'),
         elevation: z.number().min(-90).max(90).optional().describe('Vertical angle in degrees (-90 to 90). Default: 30'),
         distance: z.number().optional().describe('Distance from model center. Auto-calculated if omitted.'),
       },
-      async () => {
-        // In tests there is no browser, so view always returns an error
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: 'No browser connected' }) }],
-          isError: true,
-        };
-      },
+      async (args) => handleViewTool(args),
     );
 
     [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -330,9 +383,10 @@ describe('MCP server integration', () => {
   });
 
   it('open tool returns error for nonexistent file', async () => {
+    // Use a path inside the project directory so it passes path traversal check
     const result = await client.callTool({
       name: 'open',
-      arguments: { file: '/tmp/nonexistent-mcp-test-file.stl' },
+      arguments: { file: path.join(SAMPLES_DIR, 'nonexistent-mcp-test-file.stl') },
     });
 
     assert.strictEqual(result.isError, true);
@@ -342,7 +396,8 @@ describe('MCP server integration', () => {
   });
 
   it('open tool returns error for unsupported file type', async () => {
-    const tmpFile = path.join(os.tmpdir(), 'mcp-test.obj');
+    // Create temp file inside the project directory so it passes path traversal check
+    const tmpFile = path.join(SAMPLES_DIR, 'mcp-test-temp.obj');
     fs.writeFileSync(tmpFile, 'dummy');
 
     try {
@@ -356,7 +411,8 @@ describe('MCP server integration', () => {
     }
   });
 
-  it('view tool returns error when no browser is connected', async () => {
+  it('view tool returns error when no model is loaded', async () => {
+    resetState();
     const result = await client.callTool({
       name: 'view',
       arguments: { azimuth: 45, elevation: 30 },
@@ -364,6 +420,19 @@ describe('MCP server integration', () => {
 
     assert.strictEqual(result.isError, true);
     const parsed = JSON.parse(result.content[0].text);
-    assert.ok(parsed.error);
+    assert.ok(parsed.error.includes('No model currently loaded'));
+  });
+
+  it('view tool returns error when no browser is connected', async () => {
+    // Open a file first so we pass the "no model" check
+    await client.callTool({ name: 'open', arguments: { file: EXAMPLE_STL } });
+    const result = await client.callTool({
+      name: 'view',
+      arguments: { azimuth: 45, elevation: 30 },
+    });
+
+    assert.strictEqual(result.isError, true);
+    const parsed = JSON.parse(result.content[0].text);
+    assert.ok(parsed.error.includes('No browser connected'));
   });
 });

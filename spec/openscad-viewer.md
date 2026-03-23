@@ -100,14 +100,16 @@ Renders the current model at a specified camera angle and returns an image.
 
 **Returns:**
 
+Two content blocks:
+1. An inline `image` content block (base64 PNG screenshot of the Three.js viewport)
+2. A `text` content block with metadata JSON:
+
 ```json
 {
   "imagePath": "/tmp/openscad-viewer-capture-xxxxx.png",
   "camera": { "azimuth": 45, "elevation": 30, "distance": 100 }
 }
 ```
-
-The image is a PNG screenshot of the Three.js viewport at the requested angle.
 
 **Side effect:** The browser camera **animates smoothly** to the requested position, so the user sees what the agent is looking at.
 
