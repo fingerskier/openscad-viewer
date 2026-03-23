@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const { parseStlBoundingBox, parseScadDependencies, openFile, handleViewTool, isPathAllowed, cleanup, resetState } = require('../index.js');
+const { parseStlBoundingBox, parseScadDependencies, openFile, handleViewTool, isPathAllowed, cleanupTempStl, cleanup, resetState } = require('../index.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -279,6 +279,40 @@ describe('isPathAllowed', () => {
       if (saved === undefined) delete process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS;
       else process.env.OPENSCAD_VIEWER_ALLOW_ALL_PATHS = saved;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanupTempStl
+// ---------------------------------------------------------------------------
+
+describe('cleanupTempStl', () => {
+  it('deletes temp files in the os tmpdir with the openscad-viewer prefix', async () => {
+    const tmpFile = path.join(os.tmpdir(), `openscad-viewer-cleanup-test-${Date.now()}.stl`);
+    fs.writeFileSync(tmpFile, 'dummy');
+    assert.ok(fs.existsSync(tmpFile));
+
+    cleanupTempStl(tmpFile);
+    // Allow async unlink to complete
+    await new Promise((r) => setTimeout(r, 50));
+    assert.ok(!fs.existsSync(tmpFile));
+  });
+
+  it('does not delete files outside tmpdir', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-cleanup-test-'));
+    const nonTmpFile = path.join(tmpDir, 'example.stl');
+    fs.writeFileSync(nonTmpFile, 'dummy');
+
+    cleanupTempStl(nonTmpFile);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.ok(fs.existsSync(nonTmpFile));
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('handles null/undefined gracefully', () => {
+    assert.doesNotThrow(() => cleanupTempStl(null));
+    assert.doesNotThrow(() => cleanupTempStl(undefined));
   });
 });
 

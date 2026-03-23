@@ -37,6 +37,17 @@ let lastBoundingBox = null;
 let watcher = null;
 let debounceTimer = null;
 
+// ---------------------------------------------------------------------------
+// Temp file cleanup
+// ---------------------------------------------------------------------------
+const tmpPrefix = path.join(os.tmpdir(), 'openscad-viewer-');
+
+function cleanupTempStl(stlPath) {
+  if (stlPath && stlPath.startsWith(tmpPrefix)) {
+    fsp.unlink(stlPath).catch(() => {});
+  }
+}
+
 const wsClients = new Set();
 const pendingRequests = new Map();
 let requestIdCounter = 0;
@@ -197,6 +208,7 @@ async function handleFileChange() {
       broadcast({ type: 'error', message: result.error });
       return;
     }
+    cleanupTempStl(currentStlPath);
     currentStlPath = result.stlPath;
     currentStlBuffer = await fsp.readFile(result.stlPath);
     lastBoundingBox = parseStlBoundingBox(currentStlBuffer);
@@ -239,9 +251,11 @@ async function openFile(filePath) {
     if (result.error) {
       throw new Error(`OpenSCAD compilation failed:\n${result.error}`);
     }
+    cleanupTempStl(currentStlPath);
     currentStlPath = result.stlPath;
     currentStlBuffer = await fsp.readFile(result.stlPath);
   } else {
+    cleanupTempStl(currentStlPath);
     currentStlPath = absPath;
     currentStlBuffer = await fsp.readFile(absPath);
   }
@@ -450,6 +464,10 @@ async function main() {
 }
 
 if (require.main === module) {
+  process.on('exit', () => cleanupTempStl(currentStlPath));
+  process.on('SIGINT', () => process.exit());
+  process.on('SIGTERM', () => process.exit());
+
   main().catch((err) => {
     process.stderr.write(`Fatal error: ${err.message}\n`);
     process.exit(1);
@@ -462,7 +480,8 @@ module.exports = {
   openFile,
   handleViewTool,
   isPathAllowed,
+  cleanupTempStl,
   cleanup() { if (watcher) { watcher.close(); watcher = null; } },
-  resetState() { currentFile = null; currentStlPath = null; currentStlBuffer = null; lastBoundingBox = null; },
+  resetState() { cleanupTempStl(currentStlPath); currentFile = null; currentStlPath = null; currentStlBuffer = null; lastBoundingBox = null; },
   main,
 };

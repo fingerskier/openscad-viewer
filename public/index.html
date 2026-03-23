@@ -235,7 +235,7 @@
       const containerRef = useRef(null);
       const wsRef = useRef(null);
       const [error, setError] = useState(null);
-      const [loading, setLoading] = useState(true);
+      const [loading, setLoading] = useState(false);
 
       // Initialise Three.js scene once
       useEffect(() => {
@@ -258,6 +258,7 @@
 
             switch (msg.type) {
               case 'model-updated':
+                setLoading(true);
                 loadModel(() => {
                   setLoading(false);
                   setError(null);
