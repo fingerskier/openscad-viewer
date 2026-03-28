@@ -189,6 +189,7 @@ function setupWatcher(filePath) {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => handleFileChange().catch(err => {
       log(`Watch handler error: ${err.message}`);
+      broadcast({ type: 'error', message: `File watch error: ${err.message}` });
     }), 300);
   });
 }
@@ -280,11 +281,10 @@ async function openFile(filePath) {
 // ---------------------------------------------------------------------------
 
 function openBrowser(url) {
-  const { exec } = require('child_process');
   switch (process.platform) {
-    case 'darwin':  exec(`open "${url}"`);       break;
-    case 'win32':   exec(`start "" "${url}"`);   break;
-    default:        exec(`xdg-open "${url}"`);   break;
+    case 'darwin':  execFile('open', [url]);            break;
+    case 'win32':   execFile('cmd', ['/c', 'start', '', url]); break;
+    default:        execFile('xdg-open', [url]);        break;
   }
 }
 
